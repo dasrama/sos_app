@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="SwiftRescue"
+            android:text="SnapSOS"
             android:textColor="@color/white"
             android:textSize="24sp"
             android:textStyle="bold"

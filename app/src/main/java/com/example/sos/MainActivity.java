@@ -25,6 +25,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.example.sos.ShakeServices.ReactivateService;
 import com.example.sos.ShakeServices.SensorService;
@@ -32,14 +33,16 @@ import com.example.sos.adapter.CustomAdapter;
 import com.example.sos.model.ContactModel;
 import com.example.sos.dbHelper.DbHelper;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int IGNORE_BATTERY_OPTIMIZATION_REQUEST = 1002;
     private static final int PICK_CONTACT = 1;
+    private static final int PERMISSION_REQUEST_CODE = 100;
+    private static final int BACKGROUND_LOCATION_PERMISSION_CODE = 101;
 
-    // create instances of various classes to be used
     Button button1;
     ListView listView;
     DbHelper db;
@@ -51,24 +54,10 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // check for runtime permissions
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_DENIED) {
-            requestPermissions(new String[]{
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.SEND_SMS,
-                    Manifest.permission.READ_CONTACTS,
-                    Manifest.permission.RECORD_AUDIO // Add this line
-            }, 100);
-        }
+        // Check and request permissions in a safe way
+        checkAndRequestPermissions();
 
-        // this is a special permission required only by devices using
-        // Android Q and above. The Access Background Permission is responsible
-        // for populating the dialog with "ALLOW ALL THE TIME" option
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, 100);
-        }
-
-        // check for BatteryOptimization,
+        // check for BatteryOptimization
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
@@ -77,15 +66,17 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // start the service
-        SensorService sensorService = new SensorService();
-        Intent intent = new Intent(this, sensorService.getClass());
-        if (!isMyServiceRunning(sensorService.getClass())) {
-            startService(intent);
+        Intent intent = new Intent(this, SensorService.class);
+        if (!isMyServiceRunning(SensorService.class)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
         }
 
-
         button1 = findViewById(R.id.Button1);
-        listView = (ListView) findViewById(R.id.ListView);
+        listView = findViewById(R.id.ListView);
         db = new DbHelper(this);
         list = db.getAllContacts();
         customAdapter = new CustomAdapter(this, list);
@@ -94,10 +85,9 @@ public class MainActivity extends AppCompatActivity {
         button1.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // calling of getContacts()
                 if (db.count() != 5) {
-                    Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI);
-                    startActivityForResult(intent, PICK_CONTACT);
+                    Intent pickIntent = new Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI);
+                    startActivityForResult(pickIntent, PICK_CONTACT);
                 } else {
                     Toast.makeText(MainActivity.this, "Can't Add more than 5 Contacts", Toast.LENGTH_SHORT).show();
                 }
@@ -105,16 +95,53 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // method to check if the service is running
+    private void checkAndRequestPermissions() {
+        List<String> listPermissionsNeeded = new ArrayList<>();
+        
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            listPermissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+            listPermissionsNeeded.add(Manifest.permission.SEND_SMS);
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            listPermissionsNeeded.add(Manifest.permission.READ_CONTACTS);
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            listPermissionsNeeded.add(Manifest.permission.RECORD_AUDIO);
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                listPermissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }
+
+        if (!listPermissionsNeeded.isEmpty()) {
+            ActivityCompat.requestPermissions(this, listPermissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        } else {
+            // If foreground permissions are already granted, check background location
+            checkBackgroundLocationPermission();
+        }
+    }
+
+    private void checkBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                // Request background location separately (it must be requested after foreground location is granted)
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, BACKGROUND_LOCATION_PERMISSION_CODE);
+            }
+        }
+    }
+
     private boolean isMyServiceRunning(Class<?> serviceClass) {
         ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager == null) return false;
         for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
             if (serviceClass.getName().equals(service.service.getClassName())) {
-                Log.i("Service status", "Running");
                 return true;
             }
         }
-        Log.i("Service status", "Not running");
         return false;
     }
 
@@ -130,47 +157,34 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 100) {
-            if (grantResults[0] == PackageManager.PERMISSION_DENIED) {
-                Toast.makeText(this, "Permissions Denied!\n Can't use the App!", Toast.LENGTH_SHORT).show();
+        
+        // Handle cancelled requests (grantResults will be empty)
+        if (grantResults.length == 0) {
+            return;
+        }
+
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+
+            if (allGranted) {
+                checkBackgroundLocationPermission();
+            } else {
+                Toast.makeText(this, "Permissions are required for SOS features to work.", Toast.LENGTH_LONG).show();
+            }
+        } else if (requestCode == BACKGROUND_LOCATION_PERMISSION_CODE) {
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("SOS_APP", "Background location granted");
+            } else {
+                Toast.makeText(this, "Background location is recommended for better protection.", Toast.LENGTH_LONG).show();
             }
         }
     }
-
-//    @Override
-//    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-//        super.onActivityResult(requestCode, resultCode, data);
-//
-//        // get the contact from the PhoneBook of device
-//        switch (requestCode) {
-//            case (PICK_CONTACT):
-//                if (resultCode == Activity.RESULT_OK) {
-//
-//                    Uri contactData = data.getData();
-//                    Cursor c = managedQuery(contactData, null, null, null, null);
-//                    if (c.moveToFirst()) {
-//
-//                        String id = c.getString(c.getColumnIndexOrThrow(ContactsContract.Contacts._ID));
-//                        String hasPhone = c.getString(c.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER));
-//                        String phone = null;
-//                        try {
-//                            if (hasPhone.equalsIgnoreCase("1")) {
-//                                Cursor phones = getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = " + id, null, null);
-//                                phones.moveToFirst();
-//                                phone = phones.getString(phones.getColumnIndex("data1"));
-//                            }
-//                            String name = c.getString(c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME));
-//                            db.addcontact(new ContactModel(0, name, phone));
-//                            list = db.getAllContacts();
-//                            customAdapter.refresh(list);
-//                        } catch (Exception ex) {
-//                        }
-//                    }
-//                }
-//                break;
-//        }
-//    }
-
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
@@ -181,8 +195,6 @@ public class MainActivity extends AppCompatActivity {
             if (contactData != null) {
                 Cursor c = getContentResolver().query(contactData, null, null, null, null);
                 if (c != null && c.moveToFirst()) {
-
-                    // Check if the column exists before accessing it
                     int idIndex = c.getColumnIndex(ContactsContract.Contacts._ID);
                     int hasPhoneIndex = c.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER);
                     int displayNameIndex = c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME);
@@ -213,26 +225,19 @@ public class MainActivity extends AppCompatActivity {
                         db.addcontact(new ContactModel(0, name, phone));
                         list = db.getAllContacts();
                         customAdapter.refresh(list);
-                    } else {
-                        Toast.makeText(this, "Unable to find required contact details", Toast.LENGTH_SHORT).show();
                     }
-
                     c.close();
-                } else {
-                    Toast.makeText(this, "No contact found", Toast.LENGTH_SHORT).show();
                 }
             }
         }
     }
 
-    // this method prompts the user to remove any
-    // battery optimisation constraints from the App
     private void askIgnoreOptimization() {
-
-        @SuppressLint("BatteryLife") Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-        intent.setData(Uri.parse("package:" + getPackageName()));
-        startActivityForResult(intent, IGNORE_BATTERY_OPTIMIZATION_REQUEST);
-
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            @SuppressLint("BatteryLife") 
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, IGNORE_BATTERY_OPTIMIZATION_REQUEST);
+        }
     }
-
 }

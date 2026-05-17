@@ -24,6 +24,7 @@ import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 
 import com.example.sos.R;
+import com.example.sos.SosAlertActivity;
 import com.example.sos.audioService.CloudinaryAudioUploader;
 import com.example.sos.model.ContactModel;
 import com.example.sos.dbHelper.DbHelper;
@@ -154,6 +155,7 @@ public class SensorService extends Service {
                 @Override
                 public void onSuccess(String url) {
                     sendSmsToAll("SOS Audio Evidence: " + url);
+                    showSosPopup();
                 }
 
                 @Override
@@ -162,6 +164,12 @@ public class SensorService extends Service {
                 }
             });
         }, 30000);
+    }
+
+    private void showSosPopup() {
+        Intent intent = new Intent(this, SosAlertActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 
     private void sendSmsToAll(String message) {
